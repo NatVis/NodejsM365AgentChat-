@@ -1,0 +1,153 @@
+{
+  "info": {
+    "name": "Web Chat - Direct Line Token Exchange",
+    "_postman_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Test collection for the Web Chat backend with Copilot Studio + SharePoint integration"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000" },
+    { "key": "tenantId", "value": "YOUR_TENANT_ID" },
+    { "key": "clientId", "value": "YOUR_CLIENT_ID" },
+    { "key": "clientSecret", "value": "YOUR_CLIENT_SECRET" },
+    { "key": "serviceAccountEmail", "value": "YOUR_SERVICE_ACCOUNT_EMAIL" },
+    { "key": "serviceAccountPassword", "value": "YOUR_SERVICE_ACCOUNT_PASSWORD" },
+    { "key": "serviceAccountToken", "value": "" },
+    { "key": "sessionId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "1. Get Tokens (sessionId + directLineToken)",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/getTokens",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "getTokens"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const json = pm.response.json();",
+              "pm.test('Returns sessionId', () => pm.expect(json.sessionId).to.be.a('string'));",
+              "pm.test('Returns directLineToken', () => pm.expect(json.directLineToken).to.be.a('string'));",
+              "pm.collectionVariables.set('sessionId', json.sessionId);"
+            ]
+          }
+        }
+      ],
+      "response": []
+    },
+    {
+      "name": "2. Exchange Token (server-side)",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"sessionId\": \"{{sessionId}}\",\n  \"connectionName\": \"YourConnectionName\",\n  \"activityId\": \"sample-activity-id\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/exchangeToken",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "exchangeToken"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status is 200 or valid error', () => {",
+              "  pm.expect(pm.response.code).to.be.oneOf([200, 400, 401]);",
+              "});"
+            ]
+          }
+        }
+      ],
+      "response": []
+    },
+    {
+      "name": "3. Entra ID ROPC - Direct Credential Test",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/x-www-form-urlencoded" }
+        ],
+        "body": {
+          "mode": "urlencoded",
+          "urlencoded": [
+            { "key": "grant_type", "value": "password" },
+            { "key": "client_id", "value": "{{clientId}}" },
+            { "key": "client_secret", "value": "{{clientSecret}}" },
+            { "key": "username", "value": "{{serviceAccountEmail}}" },
+            { "key": "password", "value": "{{serviceAccountPassword}}" },
+            { "key": "scope", "value": "https://graph.microsoft.com/.default openid profile" }
+          ]
+        },
+        "url": {
+          "raw": "https://login.microsoftonline.com/{{tenantId}}/oauth2/v2.0/token",
+          "protocol": "https",
+          "host": ["login", "microsoftonline", "com"],
+          "path": ["{{tenantId}}", "oauth2", "v2.0", "token"]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const json = pm.response.json();",
+              "pm.test('Returns access_token', () => pm.expect(json.access_token).to.be.a('string'));",
+              "pm.collectionVariables.set('serviceAccountToken', json.access_token);"
+            ]
+          }
+        }
+      ],
+      "response": []
+    },
+    {
+      "name": "4. Graph API - Verify SharePoint Access",
+      "request": {
+        "method": "GET",
+        "header": [
+          { "key": "Authorization", "value": "Bearer {{serviceAccountToken}}" }
+        ],
+        "url": {
+          "raw": "https://graph.microsoft.com/v1.0/sites?search=*",
+          "protocol": "https",
+          "host": ["graph", "microsoft", "com"],
+          "path": ["v1.0", "sites"],
+          "query": [
+            { "key": "search", "value": "*" }
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('Status is 200', () => pm.expect(pm.response.code).to.equal(200));",
+              "pm.test('Returns sites array', () => {",
+              "  const json = pm.response.json();",
+              "  pm.expect(json.value).to.be.an('array');",
+              "});"
+            ]
+          }
+        }
+      ],
+      "response": []
+    }
+  ]
+}

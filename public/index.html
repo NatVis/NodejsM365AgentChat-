@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Prudential Assistant</title>
+  <script src="https://cdn.botframework.com/botframework-webchat/latest/webchat.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; font-family: 'Inter', sans-serif; background: #f0f2f5; }
+    
+    .container {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    .header {
+      background: linear-gradient(135deg, #1a237e, #3949ab);
+      color: white;
+      padding: 16px 24px;
+      border-radius: 12px 12px 0 0;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 2px 8px rgba(26, 35, 126, 0.3);
+    }
+
+    .header-icon {
+      width: 40px;
+      height: 40px;
+      background: rgba(255,255,255,0.2);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+    }
+
+    .header-text h1 {
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .header-text p {
+      font-size: 12px;
+      opacity: 0.8;
+    }
+
+    #chatwindow {
+      flex: 1;
+      border-radius: 0 0 12px 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    }
+
+    .loading {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      background: white;
+      color: #666;
+      font-size: 14px;
+      border-radius: 0 0 12px 12px;
+    }
+
+    .loading::after {
+      content: '';
+      width: 20px;
+      height: 20px;
+      border: 3px solid #e0e0e0;
+      border-top-color: #3949ab;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin-left: 10px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="header-icon">💬</div>
+      <div class="header-text">
+        <h1>Prudential Assistant</h1>
+        <p>Ask me anything about your documents</p>
+      </div>
+    </div>
+    <div id="chatwindow">
+      <div class="loading">Connecting</div>
+    </div>
+  </div>
+  <script>
+    (async function () {
+      // Fetch tokens from backend
+      const res = await fetch('/api/getTokens', { method: 'POST' });
+      if (!res.ok) {
+        document.getElementById('chatwindow').innerText = 'Failed to initialize chat.';
+        return;
+      }
+      const { sessionId, directLineToken } = await res.json();
+
+      // Create Direct Line instance
+      const directLine = window.WebChat.createDirectLine({ token: directLineToken });
+
+      // Track conversationId once connected
+      let conversationId = null;
+
+      // Create store with server-side token exchange middleware
+      const store = window.WebChat.createStore({}, ({ dispatch }) => next => action => {
+        if (action.type === 'DIRECT_LINE/CONNECT_FULFILLED') {
+          conversationId = action.payload?.directLine?.conversationId || action.meta?.conversationId;
+        }
+
+        if (action.type === 'DIRECT_LINE/INCOMING_ACTIVITY') {
+          const activity = action.payload.activity;
+
+          // Capture conversationId from activity if not already set
+          if (!conversationId && activity.conversation) {
+            conversationId = activity.conversation.id;
+          }
+
+          if (activity.attachments && activity.attachments.length > 0) {
+            const oauthCard = activity.attachments.find(
+              a => a.contentType === 'application/vnd.microsoft.card.oauth'
+            );
+            if (oauthCard) {
+              // Perform token exchange server-side
+              fetch('/api/exchangeToken', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  sessionId,
+                  conversationId,
+                  connectionName: oauthCard.content.connectionName,
+                  exchangeId: oauthCard.content.tokenExchangeResource.id
+                })
+              }).then(r => {
+                if (!r.ok) console.error('Token exchange failed on server');
+              }).catch(err => console.error('Token exchange error:', err));
+
+              return; // Don't render the OAuth card
+            }
+          }
+        }
+        return next(action);
+      });
+
+      // Render Web Chat with custom styling
+      window.WebChat.renderWebChat(
+        {
+          directLine,
+          store,
+          styleOptions: {
+            primaryFont: "'Inter', sans-serif",
+            bubbleBackground: '#ffffff',
+            bubbleBorderColor: '#e8eaf6',
+            bubbleBorderRadius: 12,
+            bubbleFromUserBackground: '#3949ab',
+            bubbleFromUserTextColor: '#ffffff',
+            bubbleFromUserBorderRadius: 12,
+            sendBoxBackground: '#ffffff',
+            sendBoxBorderTop: '1px solid #e0e0e0',
+            sendBoxButtonColor: '#3949ab',
+            sendBoxButtonColorOnHover: '#1a237e',
+            sendBoxTextColor: '#333',
+            sendBoxPlaceholderColor: '#999',
+            sendBoxHeight: 50,
+            avatarSize: 32,
+            botAvatarBackgroundColor: '#e8eaf6',
+            botAvatarInitials: '🤖',
+            userAvatarBackgroundColor: '#3949ab',
+            userAvatarInitials: '👤',
+            hideUploadButton: true
+          }
+        },
+        document.getElementById('chatwindow')
+      );
+    })();
+  </script>
+</body>
+</html>
